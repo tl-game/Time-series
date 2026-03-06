@@ -1,0 +1,666 @@
+---
+title: "Time Series Analysis and Forecasting: Project Report"
+subtitle: "Course: Time Series Analysis"
+date: "February 26, 2026"
+output: 
+  html_notebook:
+    toc: true
+    toc_float: true
+    theme: united
+    highlight: tango
+---
+
+# WEEK 1: Data Setup and Characteristics
+
+## Part 1: Non-Stationary & Non-Seasonal Data (GDP & Energy)
+
+### Data description
+
+We analyze two annual U.S. macroeconomic time series: real Gross Domestic Product (GDP) and energy use per capita. GDP measures the total value of goods and services produced in the economy in constant dollars, while energy use per capita measures the average amount of energy consumed per person, expressed in kilograms of oil equivalent.
+
+Both series were obtained from the World Bank database using the WDI R package. The indicators used were NY.GDP.MKTP.KD (GDP) and EG.USE.PCAP.KG.OE (energy use per capita). Data were collected for the United States from 1990 to 2020. The two series share identical annual timestamps and contain no missing observations.
+
+### Expected relationship between series
+
+GDP and energy use are economically related because production, transportation, and consumption activities require energy. As economic output grows, total energy demand typically increases. For this reason, the two variables are often expected to move together over time. However, this relationship is not necessarily proportional when energy efficiency improves or when the structure of the economy shifts toward less energy-intensive activities.
+
+```{r fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
+# Load Required Libraries
+library(WDI)
+library(fredr)
+library(dplyr)
+library(lubridate)
+
+# 1. Fetch data from World Bank (US GDP and Energy Use)
+data_annual <- WDI(country="US",
+                   indicator=c(
+                     gdp="NY.GDP.MKTP.KD",
+                     energy="EG.USE.PCAP.KG.OE"
+                   ),
+                   start=1990, end=2020)
+
+# 2. Sort data by year
+data_annual <- data_annual[order(data_annual$year), ]
+
+# 3. Check for missing values
+print(paste("Missing values:", sum(is.na(data_annual))))
+
+# 4. Create Time Series objects (frequency = 1 for annual data)
+ts_gdp <- ts(data_annual$gdp,
+             start=min(data_annual$year),
+             frequency=1)
+
+ts_energy <- ts(data_annual$energy,
+                start=min(data_annual$year),
+                frequency=1)
+
+# 5. Plotting
+par(mfrow=c(2,1), mar=c(4,4,3,2))
+plot(ts_gdp, main="US Real GDP (1990-2020)", ylab="Constant USD", xlab="Year", col="blue", lwd=2)
+plot(ts_energy, main="US Energy Use per Capita (1990-2020)", ylab="kg of oil equivalent", xlab="Year", col="darkgreen", lwd=2)
+```
+### Time-series characteristics
+Both GDP and energy use per capita exhibit long-term trends, indicating non-stationarity due to changes in their mean levels over time. Because the data are annual, no seasonal pattern is present, and variability appears relatively stable throughout the sample period. These features make both variables suitable examples of non-stationary, non-seasonal macroeconomic time series.
+
+Real GDP displays a persistent upward trend across the sample period. In contrast, energy use per capita increases slightly in earlier years and then gradually declines after approximately 2000. To better examine the relationship between the two variables despite their different scales and trend patterns, the series will be standardized and plotted together.
+
+```{r fig.height=6, fig.width=10}
+# 1. Scale the data and turn them into time series objects
+scaled_gdp <- ts(scale(ts_gdp), start = 1990, frequency = 1)
+scaled_energy <- ts(scale(ts_energy), start = 1990, frequency = 1)
+
+# 2. Plot the scaled GDP time series
+plot(scaled_gdp, col="blue", lwd=2, ylab="Standardized Value", xlab="Year", 
+     main="US GDP vs Energy Use per Capita (1990-2020)")
+
+# 3. Plot the scaled Energy line
+lines(scaled_energy, col="darkgreen", lwd=2)
+
+# 4. Add the legend
+legend("topleft", legend=c("Real GDP", "Energy Use per Capita"), 
+       col=c("blue", "darkgreen"), lty=1, lwd=2)
+
+```
+### Analysis of GDP vs. Energy Use per Capita
+The standardized series show that GDP and energy use per capita move together during the 1990s but begin to diverge around 2000. Real U.S. GDP continues to rise steadily, while energy use per capita stabilizes and then enters a gradual long-term decline. This pattern indicates that economic output has become less energy-intensive over time. Evidence reported by the U.S. Energy Information Administration shows that energy consumption per dollar of GDP has declined in most years since 1949, reflecting sustained improvements in energy efficiency and structural changes in the economy that reduce energy use per unit of output. The World Bank data used in this analysis therefore illustrate a well-documented decoupling between economic growth and per-person energy consumption.
+
+## Part 2: Seasonal Data (Employment: Retail & Transportation)
+
+### Data description 
+We analyze two monthly U.S. labor market time series: employment in retail trade and employment in transportation and warehousing. Both variables measure the number of employees (in thousands of persons) in their respective sectors. The data were obtained from the Federal Reserve Bank of St. Louis FRED database using not seasonally adjusted series CEU4200000001 (retail trade employment) and CEU4300000001 (transportation and warehousing employment). The sample begins in January 2010, and both series were aligned by date with no missing observations.
+
+### Expected relationship between series
+Retail activity and industrial production are economically connected because production supplies goods that are ultimately sold to consumers. Expansions in economic activity typically support increases in both output and spending. Therefore, the series are expected to move together over the business cycle, although their short-run dynamics may differ due to sector-specific factors and seasonal demand patterns.
+
+```{r fig.height=8, fig.width=10}
+# 1. Set the FRED API key
+fredr_set_key("2169ad043171f933cfd3e137c25e22a3") # Tanya's api key
+# fredr_set_key("28197f2d5102d8a8d382deb6b0cc5a0f") # Aliza's api key
+
+# 2. Download Monthly Data from FRED
+# CEU4200000001: All Employees, Retail Trade (Not Seasonally Adjusted)
+# CEU4300000001: All Employees, Transportation and Warehousing (Not Seasonally Adjusted)
+emp_retail <- fredr(series_id = "CEU4200000001", observation_start = as.Date("2010-01-01"))
+emp_transp <- fredr(series_id = "CEU4300000001", observation_start = as.Date("2010-01-01"))
+
+# 3. Merge to ensure exact dates
+combined_emp <- inner_join(emp_retail, emp_transp, by = "date", suffix = c("_retail", "_transp"))
+
+# 4. Check for missing values 
+print(paste("Missing values:", sum(is.na(combined_emp))))
+
+# 5. Define Time Series Objects (frequency = 12)
+ts_retail <- ts(combined_emp$value_retail, start = c(2010, 1), frequency = 12)
+ts_transp <- ts(combined_emp$value_transp, start = c(2010, 1), frequency = 12)
+
+# 6. Plotting
+par(mfrow=c(2,1), mar=c(4,4,3,2))
+plot(ts_retail, main="Retail Trade Employment", ylab="Thousands of Persons", xlab="Year", col="firebrick", lwd=1.5)
+plot(ts_transp, main="Transportation & Warehousing Employment", ylab="Thousands of Persons", xlab="Year", col="royalblue", lwd=1.5)
+```
+### Time-series characteristics
+Both time series clearly display seasonal behaviour because the data are not seasonally adjusted. Regular hiring cycles reflect predictable labour demand changes throughout the year, such as increased retail staffing during end-of-year holidays and heightened logistics employment during peak distribution periods. In addition to seasonality, both series exhibit non-stationary behaviour, as their overall employment levels change over time. Retail Trade employment grew steadily in the early 2010s but began to decline gradually in the latter half of the decade as consumer patterns evolved. In early 2020, both sectors experienced a sharp contraction associated with the COVID-19 economic shock. Transportation and Warehousing employment recovered quickly and continued its upward trend, whereas Retail employment rebounded but stabilized slightly below its pre-pandemic peak. These two time series are closely related because they represent different stages of the same supply chain: what is produced and moved in transportation and warehousing is ultimately sold in retail, so the series capture two sides of the same economic activity. To make direct comparison of their seasonal movements despite differences in scale and long-term levels, we zoom in, standardize the two time series and plot them together below.
+
+```{r fig.height=6, fig.width=10}
+# 1. Zoom in on 5 normal years using the window() function
+zoom_retail <- window(ts_retail, start=c(2015,1), end=c(2019,12))
+zoom_transp <- window(ts_transp, start=c(2015,1), end=c(2019,12))
+
+# 2. Scale the data and turn them into time series objects
+scaled_retail <- ts(scale(zoom_retail), start = c(2015, 1), frequency = 12)
+scaled_transp <- ts(scale(zoom_transp), start = c(2015, 1), frequency = 12)
+
+# 3. Plot the scaled retail time series
+plot(scaled_retail, col="firebrick", lwd=2, ylab="Standardized Employment", xlab="Year", 
+     main="Seasonal Synchronization: Retail vs Transportation (2015-2019)")
+
+# 4. Add the scaled Transportation line on top
+lines(scaled_transp, col="royalblue", lwd=2)
+
+# 5. Add a legend
+legend("topleft", legend=c("Retail Trade", "Transportation & Warehousing"), 
+       col=c("firebrick", "royalblue"), lty=1, lwd=2)
+```
+### Analysis of seasonal behaviour and relationship
+The standardized plot illustrates the synchronized seasonal behaviour between Retail Trade and Transportation & Warehousing employment. Both series display clear, distinct peaks in the summer months, followed by significantly more dramatic spikes approaching the end of the calendar year. According to the U.S. Bureau of Labor Statistics, these recurring patterns are expected in unadjusted data, as seasonal factors reflect economic events that follow a regular, predictable pattern each year. The dramatic end-of-year employment peaks are fundamentally driven by seasonal demand changes, as consumer spending surges for the winter holidays, forcing both the retail and logistics sectors into massive temporary hiring pushes. Furthermore, the BLS notes that other recurring annual events, such as increases in Social Security tax rates and earnings ceilings that typically take effect in the December-to-March period, further contribute to these pronounced cyclical movements across the labour market.
+
+# WEEK 2: Autocorrelation and Linear Regression
+
+## Topic 1 — Plots & Correlations
+Below we plot all four time series to visually examine their main characteristics, including long-term trends, seasonal fluctuations, and changes in variance over time.
+
+### Autocorrelation Function (ACF)
+The sample autocorrelation function (ACF) measures the correlation of a series with its own past values at different lags. For non-stationary, trending series, we expect the ACF to decay slowly and remain high at long lags. For seasonal series, the ACF should show repeated peaks at lags corresponding to the seasonal period (e.g., every 12 months for monthly employment data).
+
+```{r fig.height=8, fig.width=10}
+par(mfrow=c(2,2))
+acf(ts_gdp, main="ACF: US GDP", col="royalblue2", lag.max=40)
+acf(ts_energy, main="ACF: Energy Use", col="royalblue2", lag.max=40)
+acf(ts_retail, main="ACF: Retail Trade", col="royalblue2", lag.max=48)
+acf(ts_transp, main="ACF: Transportation & Warehousing", col="royalblue2", lag.max=48)
+```
+### ACF Analysis
+#### US Real GDP
+The sample Autocorrelation Function (ACF) for US Real GDP exhibits the classic signature of a strongly non-stationary, trending time series. The autocorrelations begin near 1.0 and decay extremely slowly, remaining statistically significant for over a decade. This slow decay occurs because the underlying upward trend ensures that consecutive years are highly dependent and similar in magnitude. Notably, as the lag increases beyond 15 years, the ACF crosses into negative territory, becoming statistically significant again between lags 20 and 25. This negative trough mathematically captures the relentless upward trajectory of the economy: early years in the dataset (which sit far below the 30-year historical mean) are being directly compared against recent years (which sit far above the mean), resulting in a strong inverse statistical relationship at distant lags.
+
+#### Energy Use per Capita
+Despite following a fundamentally different visual trajectory—initially rising, plateauing, and then experiencing a prolonged decline—the ACF for Energy Use per Capita displays a remarkably similar non-stationary pattern to GDP. The initial slow decay confirms that energy consumption does not randomly revert to a mean, but rather moves in sustained, multi-year structural cycles. The ACF crosses the significance threshold into negative territory slightly earlier than GDP, specifically between lags 15 and 20. This deep negative correlation perfectly captures the dataset's structural "decoupling" shift: it highlights the stark contrast between the high-consumption peak of the late 1990s/early 2000s and the highly efficient, drastically lower-consumption years of the late 2010s. Ultimately, the ACF demonstrates that both series are non-stationary because they both wander significantly from their historical averages, regardless of their specific directional paths.
+
+#### Retail Trade Employment
+The ACF plot for Retail Trade employment exhibits definitive seasonal non-stationarity with a highly distinct "scalloped" or undulating pattern. Because the underlying data is recorded monthly, the lag axis is measured in annual intervals. We can see exceptionally sharp periodic correlations at integer lags (1.0, 2.0), mathematically confirming a highly synchronized, repeating annual cycle driven by aggressive uptake in holiday hiring. Interestingly, the correlation decays rapidly: it briefly dips below zero around lag 3.0, flips upward to barely cross back through the positive significance line, and then flips downward again, crossing the negative significance threshold. This volatility perfectly reflects the sector's shifting long-term baseline alongside its dramatic seasonal spikes.
+
+#### Transportation & Warehousing Employment
+In contrast, the ACF for Transportation & Warehousing displays a much smoother profile. While it shares the same monthly intervals, its seasonal peaks are barely noticeable compared to the sharp spikes seen in the retail sector. Instead, the dominant characteristic of this plot is a continuous, slow downward decay that remains highly positive and well above the significance line across all observed lags. This slow, steady downward trend is a classic indicator of strong non-stationarity, mathematically reflecting the industry's massive, uninterrupted structural growth over time rather than just seasonal fluctuations.
+
+### Cross-Correlation Function (CCF)
+The CCF measures the correlation between two time series at different lags, showing whether movements in one series tend to lead or lag movements in the other. For GDP versus Energy Use per Capita, we expect positive correlations at short lags in the 1990s when the series moved together, but weaker or negative correlations at later lags due to the decoupling of economic growth from per-person energy consumption. For Retail Trade versus Transportation & Warehousing employment, we anticipate strong positive correlations at seasonal lags (multiples of 12 months), reflecting the predictable annual cycles in both sectors. Because Transportation & Warehousing employment continues a steady upward trend while Retail employment levels off in the latter part of the decade, the CCF may exhibit fluctuations around zero and even negative values at some lags, capturing periods when short-term movements in the two series temporarily diverge despite their seasonal alignment.
+
+```{r fig.height=6, fig.width=10}
+par(mfrow=c(1,2))
+ccf(ts_gdp, ts_energy, main="CCF: GDP vs Energy", col="royalblue2", lag.max=20)
+ccf(ts_retail, ts_transp, main="CCF: Retail vs Transportation", col="royalblue2", lag.max=48)
+```
+### CCF analysis
+#### US Real GDP vs. Energy Use per Capita
+The Cross-Correlation Function (CCF) between US Real GDP and Energy Use per Capita reveals a massive, statistically significant negative correlation centered right at lag 0. As expected from our initial visual analysis of the time series, this mathematically confirms the structural "decoupling" of these two metrics. Because the negative trough is so deep at concurrent times (lag 0), it proves that as economic output consistently pushed higher over the 30-year period, energy consumption inversely trended lower, firmly establishing their diverging macroeconomic paths.
+
+#### Retail vs. Transportation & Warehousing Employment
+The CCF for Retail and Transportation & Warehousing employment shows a repeating scalloped pattern, reflecting their synchronized seasonal behavior during predictable end-of-year surges. However, the function also displays non-stationarity, decaying, crossing zero, and turning negative at longer lags. This reflects diverging long-term trends: Transportation employment continues a strong upward trajectory, while Retail employment grew early in the decade before leveling off. At distant lags, the CCF compares the high recent levels of Transportation against the flatter Retail series, producing negative correlations.
+
+## Topic 2 — Trend & Regression
+
+### Linear Trend fitting
+To formalize the visual evidence from Topic 1, we fit deterministic linear time trends to the two non-stationary macroeconomic series: US GDP and Energy Use per Capita. The objective is to quantify the average rate of change over time and assess how much of each series’ variation can be explained by a deterministic trend.
+
+We estimate these trends using ordinary least squares (OLS), regressing each series on a time index representing the observation period. The general model specification is:
+$Y_t = \beta_0 + \beta_1 t + \varepsilon_t$
+where $Y_t$ represents the value of the series (GDP or Energy Use per Capita) at time $t$, $\beta_0$ is the intercept, $\beta_1$ is the deterministic linear trend coefficient, and $\varepsilon_t$ is the error term.
+
+```{r}
+t_gdp <- time(ts_gdp)
+t_energy <- time(ts_energy)
+
+trend_gdp <- lm(ts_gdp ~ t_gdp)
+trend_energy <- lm(ts_energy ~ t_energy)
+
+summary(trend_gdp)
+summary(trend_energy)
+```
+#### Estimation results
+The outputs from our OLS models confirm highly significant linear trends for both variables. The key metrics from the summary outputs are compared below:
+
+| Metric | US GDP Trend Model | Energy Use Trend Model |
+| :--- | :--- | :--- |
+| **Time Coefficient (Slope)** | 3.463e+11 | -48.490 |
+| **p-value (Slope)** | < 2.2e-16 (***) | 2.63e-09 (***) |
+| **Multiple R-squared** | 0.9865 | 0.7109 |
+| **F-Statistic** | 2123 | 71.32 |
+
+#### Interpretation of Trend Coefficients
+
+Both models yield highly statistically significant trend coefficients (p-values < 0.001), but they move in opposite directions.
+
+- US GDP: The slope coefficient of 3.463e+11 indicates an immense, positive deterministic trend. The incredibly high R-squared value (0.9865) means that almost 99% of the variance in US GDP over this 30-year period can be explained purely by an upward linear progression over time.
+
+- Energy Use per Capita: The slope coefficient is -48.490, meaning energy use mechanically decreases by roughly 48.5 units each year. The R-squared value (0.7109) indicates that while time is a strong predictor of this decline, there is more variance around the trendline compared to GDP.
+
+### Regression Model
+To understand the relationship between our two non-stationary and non-seasonal series, we estimate two different OLS regression models. The goal is to explain US GDP ($Y_t$) using Energy Use per Capita ($X_t$), and then determine the effect of adding a deterministic time trend ($t$).
+
+- **Model 1: GDP ~ Energy**
+A simple linear regression to test the baseline relationship between the two variables without accounting for time.
+$Y_t = \beta_0 + \beta_1 X_t + \varepsilon_t$
+
+- **Model 2: GDP ~ Energy + Time Trend**
+A multiple linear regression that includes a deterministic time trend to control for the non-stationary growth observed in the data.
+$Y_t = \beta_0 + \beta_1 X_t + \beta_2 t + \varepsilon_t$
+
+```{r}
+model1 <- lm(ts_gdp ~ ts_energy)
+model2 <- lm(ts_gdp ~ ts_energy + t_gdp)
+
+summary(model1)
+summary(model2)
+AIC(model1, model2)
+```
+#### Estimation Results
+The following table summarizes the key metrics from our two OLS regression models:
+
+| Metric | Model 1 (Base) | Model 2 (With Trend) |
+| :--- | :--- | :--- |
+| **Energy Coefficient** | -4.772e+09 (***) | 1.055e+09 (***) |
+| **Time Trend Coefficient** | N/A | 3.974e+11 (***) |
+| **Residual Standard Error** | 1.988e+12 | 2.256e+11 |
+| **Adjusted R-squared** | 0.6065 | 0.9949 |
+| **F-Statistic** | 47.25 | 2948 |
+| **AIC** | 1847.645 | 1713.617 |
+
+#### Model Comparison
+Two OLS specifications were estimated to explain GDP using Energy Use per Capita. Model 1 includes only energy consumption as a predictor, while Model 2 augments this relationship with a deterministic time trend. The inclusion of the time trend leads to a dramatic improvement in model fit. The adjusted R-squared increases from 0.6065 in Model 1 to 0.9949 in Model 2, indicating that nearly all variation in GDP is explained when both energy use and time are considered. The residual standard error also declines substantially, suggesting a much better representation of the data.
+
+Model selection criteria further support this conclusion. The Akaike Information Criterion (AIC) is lower for Model 2, indicating better explanatory power after accounting for model complexity. In addition, both explanatory variables in Model 2 are highly statistically significant, and the overall F-statistic confirms strong joint explanatory power.
+
+#### Final Model Selection
+Based on goodness-of-fit measures, statistical significance, and information criteria, Model 2 is selected. Model 1 is affected by omitted variable bias. Because GDP and Energy Use show strong underlying trends over the selected time period, a simple regression produces a misleading negative association between the variables. By incorporating a deterministic time trend, Model 2 controls for the shared influence of time and isolates the underlying relationship between the series.
+
+The results indicate that although the economy has become less energy-intensive in the long run, short-run fluctuations remain positively associated. Years in which energy use is above its downward trend correspond to years in which GDP is above its upward trend. Including the deterministic effect therefore reveals a relationship that is obscured in the baseline specification.
+
+### Seasonal Regression
+To evaluate the relationship between our two seasonal time series, we construct three progressive Ordinary Least Squares (OLS) models. The objective is to explain Retail Trade employment ($Y_t$) using Transportation & Warehousing employment ($X_t$), while sequentially adding deterministic seasonal effects and a deterministic time trend.
+
+- **Model 1: Retail ~ Transportation**
+A baseline linear regression without accounting for time or seasonality.
+$Y_t = \beta_0 + \beta_1 X_t + \varepsilon_t$
+
+- **Model 2: Retail ~ Transportation + Seasonal Effects**
+A multiple regression model that incorporates deterministic monthly dummy variables ($D_{it}$) to control for recurring seasonal variations. (January serves as the baseline month).
+$Y_t = \beta_0 + \beta_1 X_t + \sum_{i=2}^{12} \gamma_i D_{it} + \varepsilon_t$
+
+- **Model 3: Retail ~ Transportation + Seasonal Effects + Trend**
+The fully specified model, which controls for both the deterministic seasonal dummy variables and a deterministic linear time trend ($t$).
+$Y_t = \beta_0 + \beta_1 X_t + \sum_{i=2}^{12} \gamma_i D_{it} + \beta_2 t + \varepsilon_t$
+
+```{r}
+# Time trend and the months
+t_retail <- time(ts_retail)
+month_factor <- factor(cycle(ts_retail))
+
+# Base model
+model_s1 <- lm(ts_retail ~ ts_transp)
+# Add deterministic seasonality
+model_s2 <- lm(ts_retail ~ ts_transp + month_factor)
+# Add deterministic seasonality AND trend
+model_s3 <- lm(ts_retail ~ ts_transp + month_factor + t_retail)
+
+summary(model_s1)
+summary(model_s2)
+summary(model_s3) 
+AIC(model_s1, model_s2, model_s3)
+```
+### Estimation Results
+Below is the summary table with key metrics for easier comparison:
+
+| Metric | Model 1 (Base) | Model 2 (+ Seasonality) | Model 3 (+ Seasonality + Trend) |
+| :--- | :--- | :--- | :--- |
+| **Transp. Coefficient** | 0.2828 (***) | 0.2523 (***) | -0.1365 (Not Sig.) |
+| **Nov. Dummy (Month 11)** | N/A | 441.07 (**) | 488.80 (***) |
+| **Dec. Dummy (Month 12)** | N/A | 523.45 (***) | 613.60 (***) |
+| **Time Trend** | N/A | N/A | 75.14 (*) |
+| **Residual Standard Error** | 445.3 | 406.8 | 402.0 |
+| **Adjusted R-squared** | 0.2395 | 0.3654 | 0.3803 |
+| **F-Statistic** | 61.48 (***) | 10.21 (***) | 10.06 (***) |
+| **AIC** | 2905.819 | 2881.451 | 2877.798 |
+
+### Model Comparison
+The baseline specification (Model S1) indicates a positive and statistically significant association between Transportation and Warehousing employment and Retail Trade employment, but its explanatory power is limited (Adjusted R-squared is 0.2395). Introducing deterministic monthly effects (Model S2) substantially improves model fit: the adjusted R-squared increases to 0.3654 and the residual standard error declines, indicating that seasonal structure explains an important share of variation in retail employment. Several end-of-year months show statistically significant positive effects, consistent with seasonal labour demand patterns.
+
+Extending the model to include a linear time trend (Model S3) produces a modest additional improvement in fit, with the lowest AIC among the specifications and a slightly higher adjusted R-squared is 0.3803. However, once both seasonality and trend are controlled for, the coefficient on transportation employment becomes statistically insignificant, suggesting that the contemporaneous association observed in simpler models partly reflects shared seasonal and long-run dynamics rather than a direct relationship.
+
+### Final Model Selection
+Based on model fit statistics and information criteria, Model S3 is selected. It provides the most comprehensive representation of the data by accounting for both deterministic seasonality and long-term trend effects, while achieving the lowest AIC and the highest explanatory power among the competing models. 
+
+Once we control for the fact that both series grow over time (the linear trend) and both series spike at the end of the year (the November/December dummies), the direct relationship between the two industries vanishes. We can conclude that Retail Trade employment is not directly driven by Transportation employment, but rather, both sectors simply react to the exact same deterministic external forces—namely, structural economic growth over time and massive, predictable surges in holiday consumer demand.
+
+# WEEK 3: Transformations, Non-Linearity, and Smoothing
+
+## Deterministic Trend and Detrending
+In this section, we will isolate the short-term economic fluctuations of our macroeconomic variables by removing their long-term deterministic growth trajectories.
+
+### Trend Estimation for Non-Stationary Series
+As established in Week 2, both US GDP and Energy Use per Capita exhibit strong non-stationary behaviour dominated by deterministic linear trends. By fitting OLS regression models against a time index, we calculated the precise mathematical trajectory of these trends. Because these trends explain the vast majority of the variance in the data, they obscure our ability to analyze shorter-term, year-to-year economic cycles.
+
+### Detrended Series and Stationarity Assessment
+To achieve a "trend-stationary" series, we extract the residuals from our Week 2 linear models. Detrending subtracts the predictable, long-term linear growth from the actual data points, leaving behind only the short-term fluctuations.
+
+```{r fig.height=8, fig.width=10}
+detrended_gdp <- ts(residuals(trend_gdp), start = start(ts_gdp), frequency = frequency(ts_gdp))
+detrended_energy <- ts(residuals(trend_energy), start = start(ts_energy), frequency = frequency(ts_energy))
+
+par(mfrow=c(2,1), mar=c(4,4,3,2))
+plot(detrended_gdp, type="l", col="blue", main="Detrended US GDP", ylab="Residuals")
+abline(h=0, col="red", lty=2)
+
+plot(detrended_energy, type="l", col="darkgreen", main="Detrended US Energy", ylab="Residuals")
+abline(h=0, col="red", lty=2)
+```
+### Evaluation of Detrended Series
+Looking at the detrended plots, the data now successfully oscillates around a constant zero-mean (indicated by the red dashed line). However, while we have removed the long-term deterministic trend, the series are still not strictly stationary (they do not resemble random white noise). Both series display clear, multi-year patterns that correspond perfectly with known historical business cycles. We can clearly identify the economic peak around 2000, the massive, sharp decline during the 2008-2009 financial crisis, and the steep drop-off at 2020 (the beginning of COVID-19 pandemic). Furthermore, detrending reveals how synchronized these two variables actually are in the short term. Both GDP and Energy Use experience nearly identical peaks and dips throughout the 30-year period, proving that strong autocorrelation and structural economic cycles remain even after the linear trend is removed.
+
+### Comparison with Original Series
+Comparing the detrended series with the original data provides a clearer view of short-term fluctuations around the long-term trajectory. While the original series is dominated by a persistent upward trend, the detrended series isolates deviations from this trend, highlighting periods of above-trend expansion and below-trend contraction. By removing the deterministic trend component, detrending facilitates the analysis of cyclical dynamics that are otherwise obscured by long-run growth.
+
+
+## Differencing and Stationarity 
+In this section, we apply differencing (calculating the strict period-to-period change) as an alternative way to transform a non-stationary time series into a stationary one.
+
+```{r fig.height=8, fig.width=10}
+# 1st Difference
+diff_gdp <- diff(ts_gdp, differences = 1)
+diff_energy <- diff(ts_energy, differences = 1)
+
+par(mfrow=c(2,1), mar=c(4,4,3,2))
+plot(diff_gdp, main="1st Difference of GDP", col="blue", ylab="Change in GDP")
+abline(h=0, col="red", lty=2)
+
+plot(diff_energy, main="1st Difference of Energy Use", col="darkgreen", ylab="Change in Energy")
+abline(h=0, col="red", lty=2)
+```
+### First Differences of Non-Stationary Series
+To perform differencing, we subtract the value of the previous year from the value of the current year ($Y_t−Y_{t−1}$). This transforms the data from measuring absolute levels to measuring the annual rate of change. In the resulting plots, series reflects annual growth or decline rather than total GDP or total energy use. In the differenced GDP series, values are predominantly positive, consistent with the observation that economic output increased in most years over the sample period.
+
+### Order of Differencing Required
+The "order of differencing" refers to how many times we must apply this subtraction process to achieve a constant mean and variance. Visual inspection suggests that first differencing ($d = 1$) is sufficient to remove the non-stationary trend component in both series. After differencing, the observations fluctuate around a relatively constant level rather than exhibiting persistent drift. Time series that become stationary after first differencing are classified as integrated of order one, denoted $I$(1).
+
+### Comparison: Differenced vs Detrended Series
+A comparison between the differenced and detrended series illustrates the distinct effects of the two transformations. Detrending removes the deterministic trend while preserving lower-frequency movements, resulting in smoother fluctuations around the long-term path. In contrast, differencing removes dependence on the previous level entirely, producing a series that emphasizes short-term changes and displays greater variability. Despite this transformation, major economic disturbances remain evident as pronounced negative movements in both differenced GDP and differenced energy use, indicating that substantial shocks affect both growth rates and long-run dynamics. The financial crisis of 2008-2009 and the massive disruption in 2020 register as severe, undeniable downward spikes in both the differenced GDP and differenced Energy Use plots.
+
+## Log Transformations
+In this section, we apply a natural logarithmic transformation to our datasets to stabilize time series variability.
+
+```{r fig.height=8, fig.width=10}
+log_gdp <- log(ts_gdp)
+log_energy <- log(ts_energy)
+log_retail <- log(ts_retail)
+log_transp <- log(ts_transp)
+
+par(mfrow=c(2,2))
+plot(log_gdp, main="Log(GDP)", col="blue")
+plot(log_energy, main="Log(Energy)", col="darkgreen")
+plot(log_retail, main="Log(Retail)", col="firebrick")
+plot(log_transp, main="Log(Transportation)", col="royalblue")
+```
+### GDP
+The natural logarithm of the GDP series linearizes its previously exponential growth, producing an approximately straight, upward-sloping line. This indicates that the US economy has experienced a relatively stable, constant percentage growth rate over the 30-year period. The log transformation also appropriately scales economic shocks, with the declines during 2008 and 2020 clearly visible relative to the size of the economy at those times.
+
+### Energy per Capita Use
+Logging the Energy Use per Capita series emphasizes proportional changes rather than absolute levels, highlighting periods of accelerated decline. While the long-term downward trend is maintained, the 2020 shock appears as a pronounced percentage drop, making it easier to compare its relative magnitude to earlier fluctuations. This transformation provides a clearer view of changes in the growth rate over time.
+
+### Retail Trade Employment
+Applying the natural logarithm to the Retail Trade series has minimal impact on its overall visual profile. Seasonal patterns, including holiday spikes, and the pronounced drop during the 2020 pandemic remain clearly visible, similar to the raw data. The transformation primarily serves a mathematical purpose: it rescales the y-axis to express changes proportionally, stabilizing variance and preparing the series for more accurate modelling and forecasting.
+
+### Transportation and Warehouse Employment
+The logarithmic transformation also leaves the visual trajectory of the Transportation & Warehousing series largely unchanged. The upward trend, minor seasonal fluctuations, and the sharp V-shaped recovery after 2020 are all retained. The primary effect of logging is mathematical, converting absolute changes into proportional terms to prevent larger values later in the series from disproportionately influencing measures of variability or future forecasts.
+
+### Effects on Variance and Distribution
+Similar to Retail, the visual profile of the Transportation sector remains largely unchanged after applying the natural log. The primary mathematical benefit of the logarithmic transformation is the stabilization of variance. In many economic time series, as the absolute level of the data grows, the size of its fluctuations (like seasonal swings) also grows wider. By taking the log, we pull extreme values closer to the mean and push smaller values proportionately, stabilizing the amplitude of the seasonal swings.
+
+## Non-Linear Dependence on Own Past
+In this section, we check whether there are non-linear relationships between each of the four series and their own past.
+
+```{r fig.height=8, fig.width=10}
+# Align each variable with its own 1-period lag
+align_gdp <- ts.intersect(gdp = ts_gdp, gdp_lag1 = stats::lag(ts_gdp, -1))
+align_energy <- ts.intersect(energy = ts_energy, energy_lag1 = stats::lag(ts_energy, -1))
+align_retail <- ts.intersect(retail = ts_retail, retail_lag1 = stats::lag(ts_retail, -1))
+align_transp <- ts.intersect(transp = ts_transp, transp_lag1 = stats::lag(ts_transp, -1))
+
+par(mfrow=c(2,2))
+
+# GDP vs its own past
+plot(as.numeric(align_gdp[,"gdp_lag1"]), as.numeric(align_gdp[,"gdp"]), 
+     main="GDP vs GDP(Lag 1)", xlab="GDP (t-1)", ylab="GDP (t)", col="blue")
+
+# Energy vs its own past
+plot(as.numeric(align_energy[,"energy_lag1"]), as.numeric(align_energy[,"energy"]), 
+     main="Energy vs Energy(Lag 1)", xlab="Energy (t-1)", ylab="Energy (t)", col="darkgreen")
+
+# Retail vs its own past
+plot(as.numeric(align_retail[,"retail_lag1"]), as.numeric(align_retail[,"retail"]), 
+     main="Retail vs Retail(Lag 1)", xlab="Retail (t-1)", ylab="Retail (t)", col="firebrick")
+
+# Transportation vs its own past
+plot(as.numeric(align_transp[,"transp_lag1"]), as.numeric(align_transp[,"transp"]), 
+     main="Transp vs Transp(Lag 1)", xlab="Transp (t-1)", ylab="Transp (t)", col="royalblue")
+```
+#### Non-Linear Patterns in GDP
+The scatter plot of GDP against its first lag demonstrates a predominantly linear relationship. Observations closely follow an upward-sloping trend, indicating strong positive autocorrelation. There is minimal evidence of curvature or non-linear deviation at the one-year lag, suggesting that a linear autoregressive model would adequately capture the short-term dynamics of GDP.
+
+#### Non-Linear Patterns in Energy Use
+The scatter plot for Energy Use also exhibits a generally positive linear relationship with its lagged value, although the points are more dispersed compared to GDP. The spread reflects historical volatility and structural changes in US energy consumption over the 30-year period. While the relationship is less tightly clustered, no clear non-linear pattern is evident, indicating that linear modelling remains appropriate, albeit with greater residual variation.
+
+#### Non-Linear Patterns in Retail Employment
+Retail employment plotted against its first lag shows a pattern shaped by seasonality rather than non-linear dynamics. Data points form multiple parallel bands corresponding to monthly seasonal effects, resulting in a broader, ribbon-like structure. The 2020 pandemic appears as an outlier below the main cluster, representing an abrupt structural deviation, but overall the relationship is driven by recurring seasonal shifts rather than inherent non-linearity.
+
+#### Non-Linear Patterns in Transportation Employment
+Transportation employment displays a largely linear relationship with its lagged value. The points form a moderately narrow upward-sloping band, reflecting both the sector’s consistent month-to-month growth and mild seasonal variation. Occasional deviations, such as the 2020 pandemic shock, create minor departures from the main trend, but the overall relationship remains sufficiently linear for standard autoregressive modelling.
+
+## Cross-Series Non-Linear Relationships (Non-Seasonal)
+In this section, we check whether there are non-linear relationships between one of the non-stationary and non-seasonal time series and the past of the other.
+
+```{r fig.height=6, fig.width=8}
+# Align GDP (t) with Energy (t-1) using ts.intersect
+align_gdp_energy <- ts.intersect(gdp = ts_gdp, energy_lag1 = stats::lag(ts_energy, -1))
+
+# Plot GDP vs Energy past
+plot(as.numeric(align_gdp_energy[,"energy_lag1"]), as.numeric(align_gdp_energy[,"gdp"]), 
+     main="GDP vs Energy (Lag 1)", 
+     xlab="Energy Use per Capita (t-1)", 
+     ylab="US GDP (t)", 
+     col="purple", pch=1)
+```
+### Non-Linear Effects of Energy Lags on GDP
+The scatter plot of current US GDP ($Y_t$) against the previous year’s Energy Use ($X_{t-1}$) indicates a non-linear relationship. Rather than following a simple straight line, the points form a folded pattern, reflecting structural changes over time.
+
+In the earlier decades, GDP and Energy Use increased together, producing the upward-sloping portion of the curve. In later decades, GDP continued to grow while Energy Use declined, causing the data points to bend backward.
+
+This pattern shows that a single value of lagged Energy Use can correspond to different GDP levels depending on the time period. Consequently, a standard linear regression using only past Energy Use would not adequately capture this time-dependent, non-linear relationship.
+
+## Cross-Series Non-Linear Relationships (Seasonal)
+In this section, we check whether there are non-linear relationships between one of the seasonal time series and the past of the other.
+
+```{r fig.height=6, fig.width=8}
+# Align Retail (t) with Transportation (t-1) using ts.intersect
+align_retail_transp <- ts.intersect(retail = ts_retail, transp_lag1 = stats::lag(ts_transp, -1))
+
+# Plot Retail vs Transportation past
+plot(as.numeric(align_retail_transp[,"transp_lag1"]), as.numeric(align_retail_transp[,"retail"]), 
+     main="Retail vs Transportation (Lag 1)", 
+     xlab="Transportation Employment (t-1)", 
+     ylab="Retail Employment (t)", 
+     col="darkorange", pch=1)
+```
+### Non-Linear Effects of Transportation Lags on Retail
+The scatter plot of current Retail employment ($Y_t$) against the previous month’s Transportation and Warehousing employment ($X_{t-1}$) indicates a non-linear relationship. Rather than following a proportional linear trend, the data forms an inverted U-shape, reflecting structural changes in the economy over time.
+
+At lower levels of transportation employment (approximately 4,000–5,000), the two series increase together, suggesting that moderate growth in transportation historically corresponded with growth in retail employment. As transportation employment continued to surge past the 5,500 mark (driven heavily by the massive expansion of e-commerce warehousing and delivery logistics), retail employment completely stopped growing. It formed a flat plateau and even began a slight downward curve.
+
+This pattern reflects a threshold effect: beyond a certain level of transportation expansion, further growth in logistics does not lead to additional growth in retail employment. A few isolated points below the main curve correspond to the 2020 pandemic shock, when retail employment declined sharply while transportation rebounded more quickly.
+
+
+## Dynamic Regression: Non-Stationary Series
+In this section, build a regression model to explain the first non-stationary and non-seasonal time series in terms of the past of the other.
+
+```{r}
+df_analysis <- as.data.frame(align_gdp_energy)
+
+# We use a log-log regression to handle the scale and potential non-linearity
+model_lagged_gdp <- lm(log(gdp) ~ log(energy_lag1), data = as.data.frame(align_gdp_energy))
+
+# Display the summary statistics for the model
+summary(model_lagged_gdp)
+```
+### Model Specification Using Lagged Predictors
+We employ an OLS regression with a log-log specification. The log transformation of both the dependent and independent variables serves to stabilize variance, approximate linearity in the relationship, and allow the interpretation of coefficients as elasticities. The model is specified as: 
+$$\log(GDP_t) = \beta_0 + \beta_1 \log(Energy_{t-1}) + \epsilon_t$$
+where $GDP_t$ is the current year's GDP, $Energy_{t-1}$ is the previous year's per capita energy use, $\beta_0$ and $\beta_1$ are the parameters to be estimated, and $\epsilon_t$ is the error term.
+
+### Estimation Results
+The estimated model is:
+$$\log(\widehat{GDP_t}) = 51.5264 - 2.3795 \log(Energy_{t-1})$$
+Both the intercept ($\beta_0 = 51.5264$) and the coefficient on lagged energy use ($\beta_1 = -2.3795$) are statistically significant at conventional levels ($p < 0.001$). The model exhibits an $R^2$ of 0.5256 and an Adjusted $R^2$ of 0.5087, with an F-statistic of 31.03 ($p < 0.001$), indicating that past energy use accounts for a moderate proportion of variation in current GDP (in logarithmic terms).
+
+### Model Evaluation and Interpretation
+- Elasticity: In the log-log specification, the coefficient of $-2.3795$ represents an elasticity. It indicates that a 1% increase in lagged energy use is associated with an approximate 2.38% decrease in current GDP.
+
+- Economic Context: The negative coefficient reflects a structural shift in the US economy over the study period, where GDP growth occurred alongside improvements in energy efficiency and a transition toward less energy-intensive sectors.
+
+- Limitations: Both GDP and Energy Use are non-stationary series with strong trends. Applying standard OLS to such series can produce misleading correlations if the variables are not formally cointegrated. Therefore, while the statistical relationship is significant, caution is needed when interpreting it as causal.
+
+## Dynamic Regression: Seasonal Series
+In this section, we build a regression model to explain the first seasonal time series in terms of the past of the other.
+
+```{r}
+# Extract the month from the time series object to use as seasonal dummy variables
+month_factor_aligned <- factor(cycle(align_retail[,"retail"]))
+
+# Fit the linear model with lagged Transportation and monthly factors
+model_lagged_retail <- lm(retail ~ transp_lag1 + month_factor_aligned, data = as.data.frame(align_retail_transp))
+
+# Display the summary statistics
+summary(model_lagged_retail)
+```
+
+### Model Specification Using Lagged Predictors
+To examine the relationship between Retail employment and lagged Transportation employment, it is necessary to account for predictable seasonal patterns in the retail sector. Without controlling for seasonality, regular holiday fluctuations could be misinterpreted as structural changes in employment.
+
+We estimate an OLS regression that includes the one-period lag of Transportation employment and eleven monthly dummy variables (February through December, with January as the baseline). The model is:
+$$Retail_t = \beta_0 + \beta_1 Transp_{t-1} + \sum_{i=2}^{12} \gamma_i Month_{i,t} + \epsilon_t$$
+where $Retail_t$ is current-month retail employment, $Transp_{t-1}$ is the previous month’s transportation employment, $Month_{i,t}$ are monthly dummy variables, $\beta_0$ and $\beta_1$ are structural parameters, $\gamma_i$ are seasonal effects, and $\epsilon_t$ is the error term.
+
+### Estimation Results
+The estimated model produces the following results:
+
+- Intercept ($\beta_0$) = 13,920, highly significant ($p < 0.001$).
+
+- Lagged Transportation coefficient ($\beta_1$) = 0.2398, significant at $p < 0.001$.
+
+- Most monthly dummies are not statistically different from January, except for November ($\gamma_{11} = 483.5$, $p < 0.001$) and December ($\gamma_{12} = 571.2$, $p < 0.001$), which capture the holiday employment surge.
+
+The model has a Multiple R-squared of 0.3922, an Adjusted R-squared of 0.3515, and an F-statistic of 9.626 ($p < 0.001$), indicating that the combination of lagged transportation employment and month explains a moderate portion of variation in retail employment.
+
+### Model Evaluation and Interpretation
+- Goodness of Fit: The R-squared indicates that roughly 39.2% of the variation in monthly retail employment is accounted for by past transportation employment and the seasonal month effects. Extreme events such as the 2020 pandemic likely reduce the explanatory power of the model.
+
+- Structural Effect (Transportation): The coefficient of 0.2398 implies that, holding month constant, an increase of 1,000 jobs in transportation employment in the previous month is associated with approximately 240 additional retail jobs in the current month. This represents an average linear effect across the dataset and does not fully capture the non-linear plateau we noted earlier.
+
+- Seasonal Effect: The monthly dummies isolate recurring seasonal patterns. Employment is largely stable outside the holiday season, while November and December show substantial increases in retail jobs, reflecting expected holiday hiring. These estimates quantify seasonal employment fluctuations independently from structural trends in the industry.
+
+## Smoothing (Symmetric MA and Kernel)
+In this section, we carry out smoothing in the non-stationary and non-seasonal time series with symmetric moving average and kernel smoothing.
+
+```{r fig.height=8, fig.width=10}
+# 1. Symmetric Moving Average (5-year window)
+sma_energy <- stats::filter(ts_energy, filter=rep(1/5, 5), sides=2)
+
+# 2. Kernel Smoothing (Normal / Gaussian kernel)
+time_num <- as.numeric(time(ts_energy))
+ks_energy <- ksmooth(time_num, as.numeric(ts_energy), kernel="normal", bandwidth=3)
+
+par(mfrow=c(1,1))
+plot(ts_energy, main="US Energy per Capita: Original vs Smoothed", col="lightgray", lwd=2, ylab="Energy")
+lines(sma_energy, col="red", lwd=2) # Add Moving average
+lines(ks_energy$x, ks_energy$y, col="blue", lwd=2, lty=2) # Add Kernel
+
+legend("topleft", legend=c("Original", "5-Year SMA", "Kernel Smoothing"), 
+       col=c("lightgray", "red", "blue"), lty=c(1,1,2), lwd=2)
+```
+### Symmetric Moving Average (SMA)
+The SMA is calculated using a 5-year window centred on the current observation. Formally, the smoothed value at time $t$ is the equally weighted average of the current year, the two preceding years, and the two following years:
+$$Y_t^* = \frac{1}{5} \sum_{i=-2}^{2} Y_{t+i}$$
+In the plot, the solid red line represents the 5-Year SMA. By averaging the data over rigid 5-year blocks, the SMA reduces the high volatility and year-to-year fluctuations evident in the original energy series (light gray). However, this method has a well-known limitation: end-point loss. Because the SMA calculation requires two years of future data to compute the current value, the smoothed line does not extend to the edges of the series. As a result, it does not begin until 1992 and terminates around 2018. Since it's based on average it does begin to trend downward at the end due to the dip during the pandemic, but doesn't show how drastic it was.
+
+### Kernel Smoothing
+We applied Kernel Smoothing using a Gaussian kernel and compared two bandwidths: 5 and 3. With bandwidth 5, the smoothed line largely ignores the 2020 pandemic drop and continues almost linearly, failing to capture local fluctuations. Reducing the bandwidth to 3 produces a line that follows the original data more closely, preserving visible bumps and dips while remaining much smoother than the raw series. That's why this setting was selected, because it balances sensitivity to local variations with overall trend clarity, including a more realistic depiction of the pandemic decline.
+
+### Comparison and Interpretation
+The original series shows full volatility, including the sharp 2020 crash. The SMA smooths short-term fluctuations while partially reflecting the pandemic effect, producing a line that follows the broader trend. The Kernel Smoother, with a bandwidth=3, tracks local movements more closely, providing a smooth yet responsive representation of energy consumption over time. Together, the methods highlight the trade-off between reducing noise and maintaining sensitivity to short-term changes: SMA prioritizes long-term trends, while the adjusted Kernel Smoother balances trend clarity with responsiveness.
+
+# WEEK 4: Advanced Smoothing and Decomposition
+
+## Advanced Smoothing (LOWESS & Splines)
+In this section, we apply non-parametric smoothing techniques (LOWESS and smoothing splines) to the non-stationary Energy per Capita time series. Due to its higher short-term volatility compared to GDP, energy consumption provides a suitable case to evaluate how these methods isolate underlying trends from transient fluctuations.
+
+```{r fig.height=8, fig.width=10}
+# Create a numeric time vector for the models
+t_energy <- as.numeric(time(ts_energy))
+
+# 1. LOWESS (Locally Weighted Scatterplot Smoothing)
+energy_lowess <- lowess(t_energy, ts_energy, f = 0.2)
+
+# 2. Smoothing Spline (Using spar = 0.6 as a solid starting point)
+energy_spline <- smooth.spline(t_energy, ts_energy, spar = 0.5)
+
+# Plotting
+par(mfrow=c(1,1))
+plot(ts_energy, main="US Energy per Capita: LOWESS vs Smoothing Splines", ylab="Energy", col="lightgray", lwd=2)
+lines(energy_lowess, col="blue", lwd=2)
+lines(energy_spline, col="red", lwd=2, lty=2)
+
+legend("topleft", legend=c("Original Data", "LOWESS", "Smoothing Spline"), 
+       col=c("lightgray", "blue", "red"), lty=c(1,1,2), lwd=2)
+```
+### LOWESS Smoothing
+LOWESS fits simple models to local subsets of the data, with a span parameter of $f=0.2$ (20% of the points in each local fit) and robust weighting to reduce the influence of extreme values. In the plot, the blue line represents the LOWESS fit. Unlike methods that follow every short-term drop, LOWESS emphasizes the underlying trend: at the far right of the series, the line curves upward, reflecting the small pre-2020 increase in energy consumption from roughly 2017–2019, while treating the massive 2020 decline as an outlier..
+
+### Smoothing Splines
+Smoothing splines fit a piecewise polynomial across the entire dataset, balancing fidelity to the data with smoothness, using $spar=0.5$ for moderate flexibility. The red dashed line represents the smoothing spline, which follows the overall trend but responds to structural shifts in the data, including the sharp 2020 drop.
+
+### Comparison and Interpretation
+Compared to the raw energy data, both methods smooth volatility, but in different ways. LOWESS produces a smoothed trajectory that largely preserves long-term structural patterns, with the upward flick at the end showing the local pre-pandemic trend while effectively down-weighting the extreme 2020 drop. The smoothing spline, in contrast, closely tracks actual data fluctuations, including the effect of the pandemic on economy, resulting in a downward bend at the series end. Together, these methods illustrate the trade-off between trend robustness and responsiveness to extreme events: LOWESS highlights the underlying trajectory without being dominated by single-year shocks, whereas smoothing splines faithfully capture all variations but may overreact to outliers.
+
+## Classical Time Series Decomposition
+In this section, we decompose the US Transportation and Warehousing employment series into trend, seasonal, and random components. Using both Classical Moving Average decomposition and STL (Seasonal and Trend decomposition using Loess), we assess how each method captures these underlying patterns and responds to major structural shocks, including the 2020 pandemic and the subsequent e-commerce surge..
+
+```{r fig.height=8, fig.width=10}
+# Classical Decomposition (Moving Averages)
+decomp_classical <- decompose(ts_transp, type = "additive")
+
+# Plot Classical Decomposition
+plot(decomp_classical)
+```
+### Moving Average Decomposition
+The classical decomposition method relies on a simple moving average to extract the trend component. Once the trend is isolated, it is subtracted from the original data, and the remaining values are averaged across years to calculate a static, repeating seasonal pattern.
+Looking at the plot, we can analyze the four panels:
+
+- Observed: The raw employment data, showing steady pre-2020 growth, a sharp dip during the initial lockdowns, and a massive, steep acceleration afterwards.
+
+- Trend: The moving average successfully captures the long-term upward trajectory, the brief 2020 recession, and the sharp post-pandemic surge. However, because it calculates a centred moving average, it suffers from "end-point loss." Notice the blank spaces at the very beginning and very end of the trend line where the algorithm cannot compute values.
+
+- Seasonal: The extracted repeating pattern. The transportation sector exhibits a highly distinct, uniform seasonal cycle, characterized by a sharp peak at the end of each year, perfectly aligning with mass hiring for the holiday shipping season.
+
+- Random: The residual noise left over after removing the trend and seasonality. The random component hovers near zero until early 2020, where a massive negative spike (lockdowns) is immediately followed by extreme positive volatility, reflecting the chaotic restructuring of the supply chain.
+
+```{r fig.height=8, fig.width=10}
+# STL Decomposition
+decomp_stl <- stl(ts_transp, s.window = "periodic")
+
+# Plot STL Decomposition
+plot(decomp_stl, main="STL Decomposition of Transportation & Warehousing")
+```
+### STL Decomposition
+STL is a more robust algorithm. Instead of a rigid moving average, it uses LOESS to smooth the trend and seasonal components. For this model, we set the seasonal window to "periodic," forcing the seasonal component to remain identical across years to closely mirror the classical method's approach.
+Looking at the second plot, we see the clear advantages of STL:
+
+- Trend: The LOESS algorithm dynamically calculates the trend all the way to the edges of the dataset. There is no end-point loss; the line is continuous from start to finish, capturing the recent levelling-off of employment growth in late 2024 and 2025.
+
+- Remainder: Plotted as vertical bars, the remainder clearly highlights the baseline noise of the sector. Just like the classical method, the 2020 shock registers as a massive structural anomaly. Interestingly, the remainder bars show that after the extreme chaos of 2020, the baseline volatility of the industry quickly returned to normal. The noise from 2021 onward looks almost identical to the 2010s, showing how relatively quickly the sector stabilized even as it operated with more people employed.
+
+### Comparison and Interpretation
+Both decomposition methods identify the 2020 pandemic as a structural break and reveal a pronounced seasonal cycle. However, in both cases the remainder component is not purely random: it exhibits a residual seasonal pattern. This occurs because the seasonal component was constrained to remain constant over time, while the scale of seasonal hiring increased as the Transportation and Warehousing sector expanded. Consequently, the fixed seasonal pattern underestimates later seasonal peaks and overestimates earlier ones, and the unexplained variation is absorbed into the remainder. This indicates that the underlying seasonality is dynamic rather than static, and suggests that a multiplicative or time-varying seasonal specification would more fully capture the structure of the series.
+
+# Sources
+
+- World Bank, World Development Indicators (via WDI R package)
+- Federal Reserve Economic Data (FRED) (via fredr R package)
+- U.S. Energy Information Administration (https://www.eia.gov/energyexplained/use-of-energy/)
+- U.S. Bureau of Labor Statistics (https://www.bls.gov/eci/factsheets/annual-seasonal-adjustment.htm)
